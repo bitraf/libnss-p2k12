@@ -1,0 +1,14 @@
+This NSS module retrieves the contents of
+
+  https://p2k12.bitraf.no/passwd and
+  https://p2k12.bitraf.no/group,
+
+using the data to amend the passwd and group databases.  libcurl is used for
+HTTPS transfer.
+
+To enable the module after installation, /etc/nsswitch.conf must be updated.
+
+Example excerpt from /etc/nsswitch.conf:
+
+  passwd:   compat p2k12
+  group:    compat p2k12
