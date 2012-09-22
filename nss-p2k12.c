@@ -16,6 +16,8 @@
 #include <curl/curl.h>
 #include <curl/easy.h>
 
+#define CACHE_TIMEOUT (5 * 60)
+
 #define COPY_IF_ROOM(s) \
     ({ size_t len_ = strlen (s) + 1;                 \
           char *start_ = cp;                         \
@@ -368,7 +370,8 @@ open_pwd_file (void)
     {
       if (0 == fstat (fileno (pwd_file), &st)
           && st.st_uid == geteuid ()
-          && (st.st_mode & 0777) == 0600)
+          && (st.st_mode & 0777) == 0600
+          && st.st_mtime + CACHE_TIMEOUT > time (0))
         return 0;
 
       fclose (pwd_file);
@@ -392,7 +395,8 @@ open_grp_file (void)
     {
       if (0 == fstat (fileno (grp_file), &st)
           && st.st_uid == geteuid ()
-          && (st.st_mode & 0777) == 0600)
+          && (st.st_mode & 0777) == 0600
+          && st.st_mtime + CACHE_TIMEOUT > time (0))
         return 0;
 
       fclose (grp_file);
