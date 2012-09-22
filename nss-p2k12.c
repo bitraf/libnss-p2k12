@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 
 #include <curl/curl.h>
 #include <curl/easy.h>
@@ -22,8 +23,14 @@
           ? NULL                                     \
           : (cp = mempcpy (cp, s, len_), start_); })
 
+static int
+open_pwd_file (void);
+
+static int
+open_grp_file (void);
+
 static FILE *
-uri_fetch (const char *uri);
+uri_fetch (const char *uri, const char *path);
 
 /************************************************************************/
 
@@ -58,16 +65,11 @@ _nss_p2k12_getpwent_r (struct passwd *result, char *buffer, size_t buflen,
 
   pthread_mutex_lock (&pwd_lock);
 
-  if (!pwd_file)
+  if (!pwd_file && -1 == open_pwd_file ())
     {
-      pwd_file = uri_fetch ("https://p2k12.bitraf.no/passwd");
+      pthread_mutex_unlock (&pwd_lock);
 
-      if (!pwd_file)
-        {
-          pthread_mutex_unlock (&pwd_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   if (*errnop = fgetpwent_r (pwd_file, result, buffer, buflen, &p))
@@ -103,16 +105,11 @@ _nss_p2k12_getpwuid_r (uid_t uid, struct passwd *result, char *buffer,
 
   pthread_mutex_lock (&pwd_lock);
 
-  if (!pwd_file)
+  if (!pwd_file && -1 == open_pwd_file ())
     {
-      pwd_file = uri_fetch ("https://p2k12.bitraf.no/passwd");
+      pthread_mutex_unlock (&pwd_lock);
 
-      if (!pwd_file)
-        {
-          pthread_mutex_unlock (&pwd_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   rewind (pwd_file);
@@ -156,16 +153,11 @@ _nss_p2k12_getpwnam_r (const char *name, struct passwd *result, char *buffer,
 
   pthread_mutex_lock (&pwd_lock);
 
-  if (!pwd_file)
+  if (!pwd_file && -1 == open_pwd_file ())
     {
-      pwd_file = uri_fetch ("https://p2k12.bitraf.no/passwd");
+      pthread_mutex_unlock (&pwd_lock);
 
-      if (!pwd_file)
-        {
-          pthread_mutex_unlock (&pwd_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   rewind (pwd_file);
@@ -234,16 +226,11 @@ _nss_p2k12_getgrent_r (struct group *result, char *buffer, size_t buflen,
 
   pthread_mutex_lock (&grp_lock);
 
-  if (!grp_file)
+  if (!grp_file && -1 == open_grp_file ())
     {
-      grp_file = uri_fetch ("https://p2k12.bitraf.no/group");
+      pthread_mutex_unlock (&grp_lock);
 
-      if (!grp_file)
-        {
-          pthread_mutex_unlock (&grp_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   if (*errnop = fgetgrent_r (grp_file, result, buffer, buflen, &p))
@@ -279,16 +266,11 @@ _nss_p2k12_getgrgid_r (gid_t gid, struct group *result, char *buffer,
 
   pthread_mutex_lock (&grp_lock);
 
-  if (!grp_file)
+  if (!grp_file && -1 == open_grp_file ())
     {
-      grp_file = uri_fetch ("https://p2k12.bitraf.no/group");
+      pthread_mutex_unlock (&grp_lock);
 
-      if (!grp_file)
-        {
-          pthread_mutex_unlock (&grp_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   rewind (grp_file);
@@ -332,16 +314,11 @@ _nss_p2k12_getgrnam_r (const char *name, struct group *result, char *buffer,
 
   pthread_mutex_lock (&grp_lock);
 
-  if (!grp_file)
+  if (!grp_file && -1 == open_grp_file ())
     {
-      grp_file = uri_fetch ("https://p2k12.bitraf.no/group");
+      pthread_mutex_unlock (&grp_lock);
 
-      if (!grp_file)
-        {
-          pthread_mutex_unlock (&grp_lock);
-
-          return NSS_STATUS_UNAVAIL;
-        }
+      return NSS_STATUS_UNAVAIL;
     }
 
   rewind (grp_file);
@@ -379,8 +356,56 @@ _nss_p2k12_getgrnam_r (const char *name, struct group *result, char *buffer,
 
 /************************************************************************/
 
+static int
+open_pwd_file (void)
+{
+  char path[256];
+  struct stat st;
+
+  sprintf (path, "/var/lib/p2k12/passwd.%d", geteuid ());
+
+  if (NULL != (pwd_file = fopen (path, "r")))
+    {
+      if (0 == fstat (fileno (pwd_file), &st)
+          && st.st_uid == geteuid ()
+          && (st.st_mode & 0777) == 0600)
+        return 0;
+
+      fclose (pwd_file);
+    }
+
+  pwd_file = uri_fetch ("https://p2k12.bitraf.no/passwd", path);
+
+  if (!pwd_file)
+    return -1;
+}
+
+static int
+open_grp_file (void)
+{
+  char path[256];
+  struct stat st;
+
+  sprintf (path, "/var/lib/p2k12/group.%d", geteuid ());
+
+  if (NULL != (grp_file = fopen (path, "r")))
+    {
+      if (0 == fstat (fileno (grp_file), &st)
+          && st.st_uid == geteuid ()
+          && (st.st_mode & 0777) == 0600)
+        return 0;
+
+      fclose (grp_file);
+    }
+
+  grp_file = uri_fetch ("https://p2k12.bitraf.no/group", path);
+
+  if (!grp_file)
+    return -1;
+}
+
 static FILE *
-uri_fetch (const char *uri)
+uri_fetch (const char *uri, const char *path)
 {
   char targetPath[64];
 
@@ -397,8 +422,6 @@ uri_fetch (const char *uri)
 
   if (-1 == (targetFD = mkstemp (targetPath)))
     return NULL;
-
-  unlink (targetPath);
 
   if (!(targetFILE = fdopen (targetFD, "r+")))
     goto fail;
@@ -431,9 +454,15 @@ uri_fetch (const char *uri)
 
   rewind (targetFILE);
 
+  if (0 == rename (targetPath, path))
+    targetPath[0] = 0;
+
   ok = 1;
 
 fail:
+
+  if (targetPath[0])
+    unlink (targetPath);
 
   if (curl)
     curl_easy_cleanup(curl);
