@@ -440,6 +440,7 @@ uri_fetch (const char *uri, const char *path)
   curl_easy_setopt (curl, CURLOPT_USERAGENT, "p2k12-db/1.0");
   curl_easy_setopt (curl, CURLOPT_WRITEDATA, targetFILE);
   curl_easy_setopt (curl, CURLOPT_NOSIGNAL, 1);
+  curl_easy_setopt (curl, CURLOPT_CONNECTTIMEOUT, 1);
 
   curlError = curl_easy_perform (curl);
 
